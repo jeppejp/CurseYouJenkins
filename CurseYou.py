@@ -15,6 +15,7 @@ class ConsoleText:
 
     def increase(self):
         self.offset += 1
+
     def decrease(self):
         self.offset -= 1
         if self.offset < 0:
@@ -25,7 +26,7 @@ class ConsoleText:
         # if offset is so big that we return fewer lines than allowed, adjust it down
         if len(self.data) > numlines:
             if len(self.data[self.offset:]) < numlines and self.offset > 0:
-                max_offset = len(self.data)-numlines
+                max_offset = len(self.data) - numlines
                 self.offset = min(self.offset, max_offset)
         retval = []
         for i in range(0, min(numlines, len(self.data[self.offset:]))):
@@ -38,45 +39,50 @@ class ConsoleText:
 
 class Layout:
     def __init__(self):
-        self._cache = JenkinsCache.JenkinsCache('http://localhost:8080')
+        self._cache = JenkinsCache.JenkinsCache('http://build01:8080')
+
+    def log(self, txt):
+        with open('log.txt', 'a') as fp:
+            fp.write(txt + '\n')
+
     def create_boxes(self):
         (max_y, max_x) = self._stdscr.getmaxyx()
 
-        main_window = curses.newwin(max_y-1, max_x/2, 0, 0)
-        top_left = curses.newwin(max_y/2, max_x/2, 0, max_x/2)
-        bottom_left = curses.newwin(max_y/2-1, max_x/2, max_y/2, max_x/2)
+        main_window = curses.newwin(max_y - 1, max_x / 2, 0, 0)
+        top_left = curses.newwin(max_y / 2, max_x / 2, 0, max_x / 2)
+        bottom_left = curses.newwin(max_y / 2 - 1, max_x / 2, max_y / 2, max_x / 2)
         return main_window, top_left, bottom_left
 
     def gen_border(self, window, active):
         if active:
             window.border()
         else:
-            window.border(".",".",".",".",".",".",".",".")
+            window.border(".", ".", ".", ".", ".", ".", ".", ".")
 
     def _to_color(self, score=None, color=None, result=None):
-        if score >= 80 or color == 'blue' or result == 'SUCCESS':
+        if score >= 80 or color == 'blue' or result == 'SUCCESS' or color == 'disabled' or result == 'ABORTED':
             return 83
-        if score >= 20 or color == 'yellow':
+        if score >= 20 or color == 'yellow' or color == 'aborted' or result == 'UNSTABLE':
             return 191
-        if (score < 20 and score >= 0)  or color == 'red' or result == 'FAILURE':
+        if (score < 20 and score >= 0) or color == 'red' or result == 'FAILURE':
             return 197
         if color == 'notbuilt':
             return 0
-        self.bottom.addstr(1, 1, str([score, color, result]))
+        self.log("unknown score=%s or color=%s or result=%s" % (str(score), str(color), str(result)))
         return 10
 
     def update_status_line(self):
         (max_y, max_x) = self._stdscr.getmaxyx()
         time_str = time.strftime("%Y-%m-%d %H:%M:%S")
-        self._stdscr.addstr(max_y-1, 0, "THIS IS STATUS LINE"*2)
+        self._stdscr.addstr(max_y - 1, 0, "THIS IS STATUS LINE" * 2)
 
-        self._stdscr.addstr(max_y-1, max_x-len(time_str)-1, time_str)
+        self._stdscr.addstr(max_y - 1, max_x - len(time_str) - 1, time_str)
 
     def _update_build_buffer(self):
         (max_y, max_x) = self._stdscr.getmaxyx()
         self._buildlinebuffer = LineBuffer.LineBuffer()
         self._buildlinebuffer.height = self._top_height - 2
-        self._buildlinebuffer.max_length = (max_x/2)-2
+        self._buildlinebuffer.max_length = (max_x / 2) - 2
         (active_job, _) = self._joblinebuffer.active
 
         builds = self._cache.get_builds(active_job)
@@ -87,7 +93,7 @@ class Layout:
         (max_y, max_x) = self._stdscr.getmaxyx()
         self._joblinebuffer = LineBuffer.LineBuffer()
         self._joblinebuffer.height = self._top_height - 2
-        self._joblinebuffer.max_length = (max_x/2)-2
+        self._joblinebuffer.max_length = (max_x / 2) - 2
         jobs = self._cache.get_jobs()
         for j in jobs:
             self._joblinebuffer.add_line(j['name'], self._to_color(color=j['color']))
@@ -100,7 +106,7 @@ class Layout:
                 attr = curses.A_BOLD
             else:
                 attr = 0
-            self._jobs.addstr(idx + 1, 1, line, curses.color_pair(color)|attr)
+            self._jobs.addstr(idx + 1, 1, line, curses.color_pair(color) | attr)
 
     def add_builds(self, reload=False):
         if reload:
@@ -110,7 +116,7 @@ class Layout:
                 attr = curses.A_BOLD
             else:
                 attr = 0
-            self._builds.addstr(idx + 1, 1, line, curses.color_pair(color)|attr)
+            self._builds.addstr(idx + 1, 1, line, curses.color_pair(color) | attr)
 
     def add_buildview(self, reload=False):
         if reload:
@@ -118,7 +124,7 @@ class Layout:
             (abuild, _) = self._buildlinebuffer.active
             data = self._cache.get_console(ajob, abuild)
             self.console = ConsoleText(data.split('\n'))
-        
+
         (y, x) = self._buildview.getmaxyx()
         max_lines = y - 2
         lines = self.console.get(max_lines, x - 2)
@@ -138,17 +144,17 @@ class Layout:
             screen.border(".", ".", ".", ".", ".", ".", ".", ".")
         else:
             screen.border()
+
     def _draw_windows(self):
         self._jobs = curses.newwin(self._top_height, self._maxx / 2, 0, 0)
         self._builds = curses.newwin(self._top_height, self._maxx / 2, 0, self._maxx / 2)
         self._buildview = curses.newwin(self._maxy - self._top_height - 1, self._maxx, self._top_height, 0)
 
-
     def main(self, stdscr):
         curses.start_color()
         curses.use_default_colors()
         for i in range(0, curses.COLORS):
-            curses.init_pair(i,i,-1)
+            curses.init_pair(i, i, -1)
         self._active = JOB
         self._top_height = TOP_HEIGHT
         self._stdscr = stdscr
@@ -160,7 +166,6 @@ class Layout:
         self.add_jobs(reload=True)
         self.add_builds(reload=True)
         self.add_buildview(reload=True)
-
 
         while True:
             if self._redraw:
